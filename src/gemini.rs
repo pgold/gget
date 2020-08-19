@@ -1,3 +1,5 @@
+use thiserror::Error;
+
 const CRLF: [u8; 2] = [0x0D, 0x0A];
 
 #[derive(Debug, PartialEq)]
@@ -12,20 +14,22 @@ pub struct Response {
     pub body: String,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Error, Debug, PartialEq)]
 pub enum GeminiError {
+    #[error("header is too short")]
     HeaderTooShort,
-    MissingSpaceCharacter,
-    MissingCRLF,
-    UnknownStatus,
-    Utf8Error(std::str::Utf8Error),
-}
 
-// Conversion from `Utf8Error` to `GeminiError`.
-impl From<std::str::Utf8Error> for GeminiError {
-    fn from(err: std::str::Utf8Error) -> GeminiError {
-        GeminiError::Utf8Error(err)
-    }
+    #[error("header is missing space character")]
+    MissingSpaceCharacter,
+
+    #[error("server response is missing CRLF")]
+    MissingCRLF,
+
+    #[error("unknown status returned ({0})")]
+    UnknownStatus(String),
+
+    #[error(transparent)]
+    Utf8Error(#[from] std::str::Utf8Error),
 }
 
 #[derive(Debug)]
@@ -46,7 +50,7 @@ pub fn status_category(status: &str) -> Result<StatusCategory, GeminiError> {
         "4" => Ok(StatusCategory::TemporaryFailure),
         "5" => Ok(StatusCategory::PermanentFailure),
         "6" => Ok(StatusCategory::ClientCertificateRequired),
-        _ => Err(GeminiError::UnknownStatus),
+        _ => Err(GeminiError::UnknownStatus(status.to_string())),
     }
 }
 

@@ -2,6 +2,7 @@ use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::sync::Arc;
 
+use anyhow::{anyhow, Context, Result};
 use rustls;
 use webpki;
 use webpki_roots;
@@ -22,10 +23,10 @@ struct Cli {
     max_redirects: u32,
 }
 
-fn fetch(url: &str) -> gemini::Response {
-    let url = Url::parse(url).expect("Invalid URL.");
+fn fetch(url: &str) -> Result<gemini::Response> {
+    let url = Url::parse(url).with_context(|| "invalid URL")?;
 
-    let host_str = url.host_str().expect("Invalid host.");
+    let host_str = url.host_str().with_context(|| "invalid host")?;
     let port = url.port().unwrap_or(DEFAULT_PORT);
 
     let mut config = rustls::ClientConfig::new();
@@ -33,13 +34,14 @@ fn fetch(url: &str) -> gemini::Response {
         .root_store
         .add_server_trust_anchors(&webpki_roots::TLS_SERVER_ROOTS);
 
-    let dns_name = webpki::DNSNameRef::try_from_ascii_str(host_str).unwrap();
+    let dns_name = webpki::DNSNameRef::try_from_ascii_str(host_str)?;
     let mut sess = rustls::ClientSession::new(&Arc::new(config), dns_name);
-    let mut stream = TcpStream::connect((host_str, port)).expect("Failed to connect...");
+    let mut stream = TcpStream::connect((host_str, port)).with_context(|| "connection failed")?;
     let mut tls = rustls::Stream::new(&mut sess, &mut stream);
 
     let req = gemini::request(url.as_str());
-    tls.write(&req).unwrap();
+    tls.write(&req)
+        .with_context(|| "failed sending gemini request")?;
 
     let mut plaintext = Vec::new();
     match tls.read_to_end(&mut plaintext) {
@@ -47,38 +49,41 @@ fn fetch(url: &str) -> gemini::Response {
         // Ignore ConnectionAborted -- this means that the server closed the
         // connection after responding.
         Err(ref e) if e.kind() == std::io::ErrorKind::ConnectionAborted => (),
-        Err(e) => panic!("TLS read error: {:?}", e),
+        Err(e) => Err(e).with_context(|| "TLS read error")?,
     }
 
-    gemini::parse_response(&plaintext).expect("Failed to parse response.")
+    Ok(gemini::parse_response(&plaintext).with_context(|| "failed to parse response")?)
 }
 
-fn recursive_fetch(url: &str, max_redirects: u32) -> gemini::Response {
+fn recursive_fetch(url: &str, max_redirects: u32) -> Result<gemini::Response> {
     let mut redirects = 0;
     let mut current_url = url.to_string();
     while redirects <= max_redirects {
-        let response = fetch(&current_url);
-        match gemini::status_category(&response.header.status).unwrap() {
+        let response = fetch(&current_url)?;
+        match gemini::status_category(&response.header.status)? {
             gemini::StatusCategory::Redirect => {
                 redirects += 1;
                 current_url = response.header.meta;
             }
-            _ => return response,
+            _ => return Ok(response),
         }
     }
-    panic!("Error: maximum redirects ({}) exceeded.", max_redirects);
+    Err(anyhow!("maximum redirects ({}) exceeded", max_redirects))
 }
 
-fn main() -> std::io::Result<()> {
+fn main() -> Result<()> {
     let args = Cli::from_args();
-    let response = recursive_fetch(&args.url, args.max_redirects);
+    let response = recursive_fetch(&args.url, args.max_redirects)?;
 
-    match gemini::status_category(&response.header.status).unwrap() {
+    match gemini::status_category(&response.header.status)? {
         gemini::StatusCategory::Success => println!("{}", response.body),
-        _ => panic!(
-            "Error: {} - {}",
-            response.header.status, response.header.meta
-        ),
+        _ => {
+            return Err(anyhow!(
+                "{} - {}",
+                response.header.status,
+                response.header.meta
+            ))
+        }
     }
 
     Ok(())
