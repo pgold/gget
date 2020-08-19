@@ -44,7 +44,7 @@ fn main() -> std::io::Result<()> {
         Ok(_) => (),
         // Ignore ConnectionAborted -- this means that the server closed the
         // connection after responding.
-        Err(ref e) if e.kind() == std::io::ErrorKind::ConnectionAborted => println!("{:?}", e),
+        Err(ref e) if e.kind() == std::io::ErrorKind::ConnectionAborted => (),
         Err(e) => panic!("TLS read error: {:?}", e),
     }
 
