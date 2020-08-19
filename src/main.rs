@@ -26,6 +26,11 @@ struct Cli {
 fn fetch(url: &str) -> Result<gemini::Response> {
     let url = Url::parse(url).with_context(|| "invalid URL")?;
 
+    match url.scheme() {
+        "gemini" | "" => (),
+        s => return Err(anyhow!("unknown scheme \"{}\"", s)),
+    }
+
     let host_str = url.host_str().with_context(|| "invalid host")?;
     let port = url.port().unwrap_or(DEFAULT_PORT);
 
