@@ -57,9 +57,8 @@ pub fn status_category(status: &str) -> Result<StatusCategory, GeminiError> {
 fn parse_header(header: &[u8]) -> Result<Header, GeminiError> {
     // Header must be at least 3 characters long (2 status code characters, and
     // 1 space).
-    match header.len() {
-        0..=2 => return Err(GeminiError::HeaderTooShort),
-        _ => (),
+    if let 0..=2 = header.len() {
+        return Err(GeminiError::HeaderTooShort);
     }
 
     // First two characters are the status code.

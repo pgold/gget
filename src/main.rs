@@ -3,9 +3,6 @@ use std::net::TcpStream;
 use std::sync::Arc;
 
 use anyhow::{anyhow, Context, Result};
-use rustls;
-use webpki;
-use webpki_roots;
 
 use structopt::StructOpt;
 use url::Url;
