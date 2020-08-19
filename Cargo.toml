@@ -1,0 +1,12 @@
+[package]
+name = "gget"
+version = "0.1.0"
+authors = ["pgold"]
+edition = "2018"
+
+[dependencies]
+rustls = "0.18.0"
+structopt = "0.3.13"
+url = "2.1.0"
+webpki = "0.21.3"
+webpki-roots = "0.20.0"
