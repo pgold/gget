@@ -17,11 +17,13 @@ const DEFAULT_PORT: u16 = 1965;
 struct Cli {
     /// The URL to be fetched.
     url: String,
+
+    #[structopt(long, default_value = "10")]
+    max_redirects: u32,
 }
 
-fn main() -> std::io::Result<()> {
-    let args = Cli::from_args();
-    let url = Url::parse(&args.url).expect("Invalid URL.");
+fn fetch(url: &str) -> gemini::Response {
+    let url = Url::parse(url).expect("Invalid URL.");
 
     let host_str = url.host_str().expect("Invalid host.");
     let port = url.port().unwrap_or(DEFAULT_PORT);
@@ -48,7 +50,28 @@ fn main() -> std::io::Result<()> {
         Err(e) => panic!("TLS read error: {:?}", e),
     }
 
-    let response = gemini::parse_response(&plaintext).expect("Failed to parse response.");
+    gemini::parse_response(&plaintext).expect("Failed to parse response.")
+}
+
+fn recursive_fetch(url: &str, max_redirects: u32) -> gemini::Response {
+    let mut redirects = 0;
+    let mut current_url = url.to_string();
+    while redirects <= max_redirects {
+        let response = fetch(&current_url);
+        match gemini::status_category(&response.header.status).unwrap() {
+            gemini::StatusCategory::Redirect => {
+                redirects += 1;
+                current_url = response.header.meta;
+            }
+            _ => return response,
+        }
+    }
+    panic!("Error: maximum redirects ({}) exceeded.", max_redirects);
+}
+
+fn main() -> std::io::Result<()> {
+    let args = Cli::from_args();
+    let response = recursive_fetch(&args.url, args.max_redirects);
 
     match gemini::status_category(&response.header.status).unwrap() {
         gemini::StatusCategory::Success => println!("{}", response.body),
