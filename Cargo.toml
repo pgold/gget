@@ -6,7 +6,7 @@ edition = "2018"
 
 [dependencies]
 anyhow = "1.0.32"
-rustls = "0.18.0"
+rustls = { version = "0.18.0", features = ["dangerous_configuration"] }
 structopt = "0.3.13"
 thiserror = "1.0.20"
 url = "2.1.0"

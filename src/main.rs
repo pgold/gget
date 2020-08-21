@@ -8,6 +8,7 @@ use structopt::StructOpt;
 use url::Url;
 
 mod gemini;
+mod verifier;
 
 const DEFAULT_PORT: u16 = 1965;
 
@@ -18,9 +19,25 @@ struct Cli {
 
     #[structopt(long, default_value = "10")]
     max_redirects: u32,
+
+    #[structopt(long)]
+    validate_certificate: bool,
 }
 
-fn fetch(url: &str) -> Result<gemini::Response> {
+fn rustls_config(validate_certificate: bool) -> rustls::ClientConfig {
+    let mut config = rustls::ClientConfig::new();
+    match validate_certificate {
+        true => config
+            .root_store
+            .add_server_trust_anchors(&webpki_roots::TLS_SERVER_ROOTS),
+        false => config
+            .dangerous()
+            .set_certificate_verifier(Arc::new(verifier::NullVerifier {})),
+    }
+    config
+}
+
+fn fetch(config: &Arc<rustls::ClientConfig>, url: &str) -> Result<gemini::Response> {
     let url = Url::parse(url).with_context(|| "invalid URL")?;
 
     match url.scheme() {
@@ -31,13 +48,8 @@ fn fetch(url: &str) -> Result<gemini::Response> {
     let host_str = url.host_str().with_context(|| "invalid host")?;
     let port = url.port().unwrap_or(DEFAULT_PORT);
 
-    let mut config = rustls::ClientConfig::new();
-    config
-        .root_store
-        .add_server_trust_anchors(&webpki_roots::TLS_SERVER_ROOTS);
-
     let dns_name = webpki::DNSNameRef::try_from_ascii_str(host_str)?;
-    let mut sess = rustls::ClientSession::new(&Arc::new(config), dns_name);
+    let mut sess = rustls::ClientSession::new(config, dns_name);
     let mut stream = TcpStream::connect((host_str, port)).with_context(|| "connection failed")?;
     let mut tls = rustls::Stream::new(&mut sess, &mut stream);
 
@@ -57,11 +69,15 @@ fn fetch(url: &str) -> Result<gemini::Response> {
     Ok(gemini::parse_response(&plaintext).with_context(|| "failed to parse response")?)
 }
 
-fn recursive_fetch(url: &str, max_redirects: u32) -> Result<gemini::Response> {
+fn recursive_fetch(
+    config: &Arc<rustls::ClientConfig>,
+    url: &str,
+    max_redirects: u32,
+) -> Result<gemini::Response> {
     let mut redirects = 0;
     let mut current_url = url.to_string();
     while redirects <= max_redirects {
-        let response = fetch(&current_url)?;
+        let response = fetch(config, &current_url)?;
         match gemini::status_category(&response.header.status)? {
             gemini::StatusCategory::Redirect => {
                 redirects += 1;
@@ -75,7 +91,8 @@ fn recursive_fetch(url: &str, max_redirects: u32) -> Result<gemini::Response> {
 
 fn main() -> Result<()> {
     let args = Cli::from_args();
-    let response = recursive_fetch(&args.url, args.max_redirects)?;
+    let config = Arc::new(rustls_config(args.validate_certificate));
+    let response = recursive_fetch(&config, &args.url, args.max_redirects)?;
 
     match gemini::status_category(&response.header.status)? {
         gemini::StatusCategory::Success => println!("{}", response.body),
