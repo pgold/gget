@@ -3,6 +3,9 @@ name = "gget"
 version = "0.1.0"
 authors = ["pgold"]
 edition = "2018"
+license = "Unlicense"
+description = "An utility to fetch Gemini documents."
+repository = "https://github.com/pgold/gget/"
 
 [dependencies]
 anyhow = "1.0.32"
